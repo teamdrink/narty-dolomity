@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dolomiti Superski – ranking noclegów z Booking.com</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --ink:#1d2433; --muted:#667085; --line:#e3e7ee;
+          --accent:#0b5cad; --good:#1a7f4b; --mid:#b7791f; --bad:#b42318; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(135deg,#0b3d75,#0b5cad); color:#fff; padding:22px 28px; }
+  header h1 { margin:0 0 4px; font-size:22px; }
+  header p { margin:0; opacity:.85; }
+  main { padding:18px 28px 40px; max-width:1500px; margin:auto; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px 18px; align-items:end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:3px; font-weight:600; }
+  input[type=number], input[type=text], select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+  input[type=range] { width:100%; }
+  .chk { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--ink); font-weight:400; margin:0; }
+  .weights output { font-weight:700; color:var(--accent); }
+  .stats { display:flex; gap:22px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
+  .stats b { color:var(--ink); }
+  table { width:100%; border-collapse:collapse; background:var(--card); }
+  th, td { padding:8px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+  th { position:sticky; top:0; background:#eef2f7; font-size:12px; color:#344054; cursor:pointer; user-select:none; white-space:nowrap; z-index:2; }
+  th.sorted::after { content:" ▼"; } th.sorted.asc::after { content:" ▲"; }
+  tr:hover td { background:#f8fafc; }
+  td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .rank { font-weight:800; font-size:16px; color:var(--accent); text-align:center; }
+  .thumb { width:92px; height:68px; object-fit:cover; border-radius:6px; display:block; background:#ddd; }
+  .name a { color:var(--ink); font-weight:700; text-decoration:none; } .name a:hover { color:var(--accent); text-decoration:underline; }
+  .sub { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; background:#eef2f7; color:#344054; margin:2px 3px 0 0; }
+  .pill.green { background:#e3f5ec; color:var(--good); } .pill.orange { background:#fdf1dc; color:var(--mid); }
+  .score { display:inline-block; min-width:38px; padding:3px 6px; border-radius:6px 6px 6px 0; background:#003b95; color:#fff; font-weight:700; text-align:center; }
+  .total { font-weight:800; font-size:16px; }
+  .bars { display:flex; gap:2px; margin-top:3px; height:6px; width:110px; }
+  .bars span { display:block; height:100%; border-radius:2px; }
+  .b-price { background:#2e90fa; } .b-rate { background:#12b76a; } .b-dist { background:#f79009; }
+  .legend span { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 12px; vertical-align:middle; }
+  #map { height:440px; border-radius:10px; border:1px solid var(--line); }
+  details summary { cursor:pointer; font-weight:600; }
+  .tablewrap { border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:78vh; }
+  .tabs button { border:1px solid var(--line); background:#fff; padding:6px 14px; border-radius:6px; cursor:pointer; font:inherit; margin-right:6px; }
+  .tabs button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⛷️ Dolomiti Superski – ranking noclegów (Booking.com)</h1>
+  <p id="subtitle"></p>
+</header>
+<main>
+  <div class="panel weights">
+    <div class="grid">
+      <div><label>Waga: cena <output id="wPriceV"></output></label><input type="range" id="wPrice" min="0" max="100" value="40"></div>
+      <div><label>Waga: ocena gości (1–10) <output id="wRateV"></output></label><input type="range" id="wRate" min="0" max="100" value="35"></div>
+      <div><label>Waga: odległość od wyciągu <output id="wDistV"></output></label><input type="range" id="wDist" min="0" max="100" value="25"></div>
+      <div><label>Rejon narciarski</label><select id="fArea"><option value="">Wszystkie rejony</option></select></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div><label>Maks. cena za pobyt (<span class="cur"></span>)</label><input type="number" id="fPrice" placeholder="bez limitu"></div>
+      <div><label>Min. ocena gości</label><input type="number" id="fRating" min="1" max="10" step="0.1" placeholder="np. 8"></div>
+      <div><label>Maks. odległość od wyciągu (m)</label><input type="number" id="fDist" placeholder="bez limitu"></div>
+      <div><label>Szukaj w nazwie / miejscowości</label><input type="text" id="fText" placeholder="np. Selva, chalet…"></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <label class="chk"><input type="checkbox" id="fWhole"> tylko całe lokale (apartamenty, domy, chalety)</label>
+      <label class="chk"><input type="checkbox" id="fSingle"> tylko 1 lokal/pokój dla całej grupy</label>
+      <label class="chk"><input type="checkbox" id="fRated"> ukryj obiekty bez ocen</label>
+      <label class="chk"><input type="checkbox" id="fKnownDist"> ukryj bez podanej odległości od wyciągu</label>
+    </div>
+  </div>
+
+  <div class="panel stats" id="stats"></div>
+
+  <div class="tabs" style="margin-bottom:10px">
+    <button id="tabTable" class="on">Ranking</button><button id="tabMap">Mapa (top 100)</button>
+    <span class="legend sub"> Składowe wyniku:<span class="b-price"></span>cena<span class="b-rate"></span>ocena<span class="b-dist"></span>wyciąg</span>
+  </div>
+  <div id="viewTable" class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-k="rank">#</th><th></th><th data-k="name">Obiekt</th><th data-k="area">Rejon</th>
+        <th data-k="price" class="num">Cena za pobyt</th><th data-k="ppn" class="num">Os./noc</th>
+        <th data-k="rating" class="num">Ocena</th><th data-k="ski_m" class="num">Do wyciągu</th>
+        <th data-k="total" class="num sorted">Wynik</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="viewMap" style="display:none"><div id="map"></div></div>
+
+  <div class="panel" style="margin-top:14px">
+    <details>
+      <summary>Jak liczony jest ranking?</summary>
+      <ul>
+        <li><b>Cena</b> – cena za cały pobyt (z podatkami i opłatami pokazanymi przez Booking) przeliczona na osobę i noc.
+            Skala logarytmiczna: najtańsze 5% ofert = 100 pkt, najdroższe 5% = 0 pkt.</li>
+        <li><b>Ocena</b> – ocena gości z Booking (1–10), korygowana liczbą opinii (mało opinii → ocena „przyciągana” do średniej).
+            6,0 i mniej = 0 pkt, 10 = 100 pkt. Obiekty bez ocen dostają ocenę 7,0.</li>
+        <li><b>Odległość od wyciągu</b> – wartość podawana przez Booking („X m from ski lift”, ski-to-door = 0 m).
+            Punkty: 0 m = 100, 300 m ≈ 78, 500 m ≈ 62, 1 km ≈ 37, 2 km ≈ 17. Brak danych = 20 pkt.</li>
+        <li><b>Wynik</b> = średnia ważona trzech składowych (wagi ustawiasz suwakami), 0–100.</li>
+      </ul>
+      <p class="muted">Ceny i dostępność pochodzą z momentu pobrania danych i mogą się zmienić. Booking dla 7 osób może proponować kombinację kilku lokali/pokoi – widać to w opisie konfiguracji.</p>
+    </details>
+  </div>
+</main>
+
+<script>
+const DATA = {"meta": {"checkin": "2027-01-09", "checkout": "2027-01-16", "adults": 7, "nights": 7, "currency": "EUR", "generated": "2026-11-17 12:10"}, "props": [{"id": 377047, "name": "Residence Salvan", "url": "https://www.booking.com/hotel/it/residence-salvan.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Via La Sieia 20", "lat": 46.55127965484944, "lng": 11.865604519844055, "price": 4953.8, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.6, "reviews": 141, "rating_label": "Fabulous", "stars": 3, "type": "Apartamenty / Residence", "whole": true, "ski_text": "400 m from ski lift", "ski_m": 400, "ski_to_door": false, "centre": "0.8 km from centre", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Two-Bedroom Superior Apartment", "bedrooms": 2, "bathrooms": 3, "beds": 3, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/282130118.jpg?k=1b454f4f529f02e0bfed99c2dcade5ed983146206e495c14a8c33dcc1f15e6eb&o=", "free_cancel": false, "town_km": 0.6}, {"id": 411966, "name": "Garnì Tofana", "url": "https://www.booking.com/hotel/it/garna-tofana.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Strada Agà  34", "lat": 46.55396528056516, "lng": 11.86886876821518, "price": 4890.34, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.3, "reviews": 266, "rating_label": "Superb", "stars": null, "type": "Hotel", "whole": false, "ski_text": "450 m from ski lift", "ski_m": 450, "ski_to_door": false, "centre": "0.7 km from centre", "units": 4, "unit_desc": "", "unit_name": "Double or Twin Room with Balcony + Double or Twin Room with Balcony + Double or Twin Room with Balcony + Deluxe Double Room with Balcony", "bedrooms": 0, "bathrooms": 0, "beds": 8, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/111497572.jpg?k=80e3fa895d8b38f0fae5d2ab46751277379c83d1267cc0d7ab8420578883575c&o=", "free_cancel": false, "town_km": 0.5}, {"id": 740748, "name": "Residence Belavista", "url": "https://www.booking.com/hotel/it/residence-belavista.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Strada Pedecorvara 30", "lat": 46.54807369960317, "lng": 11.877690553665161, "price": 5480.05, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.4, "reviews": 32, "rating_label": "Very good", "stars": 2, "type": "Apartamenty / Residence", "whole": true, "ski_text": "100 m from ski lift", "ski_m": 100, "ski_to_door": true, "centre": "250 m from centre", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Standard One-Bedroom Apartment", "bedrooms": 2, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/329668177.jpg?k=432952a50cb7ec10bc761100481e4cac93877384cb24fd488d8ba44e0215f40b&o=", "free_cancel": false, "town_km": 0.4}, {"id": 9067458, "name": "Luxury Chalet Liosa - Ski in Ski out - Amazing view", "url": "https://www.booking.com/hotel/it/wonderful-chalet-liosa-in-best-location-in-corvara.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "15 Strada Arlara", "lat": 46.544785736108, "lng": 11.882501455406, "price": 10392.7, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.2, "reviews": 39, "rating_label": "Superb", "stars": 3, "type": "Chalet", "whole": true, "ski_text": "150 m from ski lift", "ski_m": 150, "ski_to_door": true, "centre": "0.7 km from centre", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Apartment with Balcony", "bedrooms": 3, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/626978727.jpg?k=7e9b056c0e65aeb523b1c40de9614019fbdcc03a0ee9f6d4e2bca0e987995ea8&o=", "free_cancel": false, "town_km": 0.9}, {"id": 544720, "name": "Hotel Table", "url": "https://www.booking.com/hotel/it/tabla.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Via Col Alt 8", "lat": 46.55251992878017, "lng": 11.87371551990509, "price": 11431.68, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.9, "reviews": 209, "rating_label": "Fabulous", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "400 m from ski lift", "ski_m": 400, "ski_to_door": false, "centre": "400 m from centre", "units": 2, "unit_desc": "", "unit_name": "Comfort Triple Room + Comfort Quadruple Room", "bedrooms": 0, "bathrooms": 0, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/311988371.jpg?k=685e538714fcda0fb5e8dafd5b09878d38ce8bc62630a70489120bb331a3bf92&o=", "free_cancel": false, "town_km": 0.2}, {"id": 393416, "name": "Hotel Gran Fanes", "url": "https://www.booking.com/hotel/it/gran-fanes.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Strada Agà 44", "lat": 46.55363327359624, "lng": 11.868509352207184, "price": 13995.97, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.0, "reviews": 201, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "450 m from ski lift", "ski_m": 450, "ski_to_door": false, "centre": "0.7 km from centre", "units": 2, "unit_desc": "", "unit_name": "Deluxe Quadruple Room", "bedrooms": 0, "bathrooms": 0, "beds": 8, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/636111390.jpg?k=7c748edf7aab7bd5e46c71754e47576ff910c799acbbcc27c54479c5dff03d8a&o=", "free_cancel": false, "town_km": 0.5}, {"id": 187222, "name": "Hotel Col Alto", "url": "https://www.booking.com/hotel/it/col-alto.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "Corvara in Badia", "address": "Str. Col Alto 9", "lat": 46.55250074565465, "lng": 11.874568462371826, "price": 25553.4, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.3, "reviews": 64, "rating_label": "Superb", "stars": 4, "type": "Hotel", "whole": false, "ski_text": "450 m from ski lift", "ski_m": 450, "ski_to_door": false, "centre": "400 m from centre", "units": 4, "unit_desc": "", "unit_name": "Double Room - Annex + Premier Suite", "bedrooms": 3, "bathrooms": 4, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/11348015.jpg?k=35c3df1c7fb79f42e9979331643eca80c39689826386c9d96c1c86c1342d8740&o=", "free_cancel": false, "town_km": 0.2}, {"id": 15514034, "name": "Grifone Dolomiti Residences", "url": "https://www.booking.com/hotel/it/grifone-dolomiti-residences.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Passo Campolongo, 26", "lat": 46.5116482881068, "lng": 11.8752312217041, "price": 5161.35, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.7, "reviews": 179, "rating_label": "Fabulous", "stars": 3, "type": "Apartamenty / Residence", "whole": true, "ski_text": "950 m from ski lift", "ski_m": 950, "ski_to_door": false, "centre": "4.2 km from Corvara in Badia", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Apartment - Split Level", "bedrooms": 2, "bathrooms": 1, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/883405137.jpg?k=8cd522e45e1e9062396bdf295c7f4dd719a77773f7bee66ce48471180eb77d57&o=", "free_cancel": false, "town_km": 1.6}, {"id": 1806395, "name": "Dolomites Wellness Hotel Savoy", "url": "https://www.booking.com/hotel/it/savoy-alta-badia.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "La Villa", "city": "La Villa (Stern)", "address": "Str. Colz 88", "lat": 46.58157613156191, "lng": 11.900754526428273, "price": 13170.08, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.7, "reviews": 269, "rating_label": "Fabulous", "stars": 4, "type": "Hotel", "whole": false, "ski_text": "50 m from ski lift", "ski_m": 50, "ski_to_door": true, "centre": "4.1 km from Corvara in Badia", "units": 2, "unit_desc": "", "unit_name": "Quadruple Room + Superior Double Room", "bedrooms": 0, "bathrooms": 0, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/768624497.jpg?k=a5f3f75e7db5c4a757c77f31b674d90fe9b444c8e9bc8d33983d9e23ae89a5e4&o=", "free_cancel": true, "town_km": 0.6}, {"id": 418491, "name": "Apartments & Garnì Pre Da Nai", "url": "https://www.booking.com/hotel/it/apartments-amp-garna-pre-da-nei.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Corvara in Badia", "city": "La Villa (Stern)", "address": "Via Verda, 5", "lat": 46.56703367441581, "lng": 11.886858344078064, "price": 6332.7, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.3, "reviews": 79, "rating_label": "Superb", "stars": 4, "type": "Apartamenty / Residence", "whole": true, "ski_text": "1.5 km from ski lift", "ski_m": 1500, "ski_to_door": false, "centre": "2.2 km from Corvara in Badia", "units": 3, "unit_desc": "", "unit_name": "Double Room + Apartment with Terrace + Superior Apartment", "bedrooms": 3, "bathrooms": 4, "beds": 7, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/252567865.jpg?k=92f2e179df2cb51df2b388c7ec0d9935667cbdb1410d8b75cd6748464c82c6ae&o=", "free_cancel": false, "town_km": 2.0}, {"id": 88424, "name": "Kolfuschgerhof Mountain Resort", "url": "https://www.booking.com/hotel/it/kolfuschgerhof.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "Colfosco", "city": "Colfosco (Kolfuschg)", "address": "Roennstrasse 7", "lat": 46.549837182884126, "lng": 11.840139627456665, "price": 31756.2, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.5, "reviews": 514, "rating_label": "Exceptional", "stars": 4, "type": "Hotel", "whole": false, "ski_text": "300 m from ski lift", "ski_m": 300, "ski_to_door": false, "centre": "2.7 km from Corvara in Badia", "units": 4, "unit_desc": "", "unit_name": "Budget Double Room + Business Double Room", "bedrooms": 0, "bathrooms": 0, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/939197055.jpg?k=4711e79b5eea32f30210bab28a4383401c286732bbaf8f3735218d4a8c8e49b3&o=", "free_cancel": true, "town_km": 1.4}, {"id": 237369, "name": "Hotel Rezia", "url": "https://www.booking.com/hotel/it/pension-rezia-k-g-des-crazzolara-werner-co.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "La Villa", "city": "La Villa (Stern)", "address": "Cianins 3", "lat": 46.58428370639597, "lng": 11.909222602844238, "price": 8481.33, "price_excluded_charges": 0.0, "price_before_discount": 9135.0, "discounts": ["Booking.com pays"], "currency": "EUR", "rating": 9.2, "reviews": 252, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "400 m from ski lift", "ski_m": 400, "ski_to_door": false, "centre": "4.7 km from Corvara in Badia", "units": 3, "unit_desc": "", "unit_name": "Double or Twin Room - Attic", "bedrooms": 0, "bathrooms": 0, "beds": 9, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/576693355.jpg?k=6516efc2efbd9855d305b55ebf26e112e8f9be8e24a0cf746ba17c7c70eb9f91&o=", "free_cancel": false, "town_km": 0.8}, {"id": 15402881, "name": "Grifone Dolomiti Resort", "url": "https://www.booking.com/hotel/it/grifone-dolomiti-resort.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Provincia di Belluno", "address": "Passo Campolongo, 27 32020 Livinallongo Del Col di Lana", "lat": 46.5112289773919, "lng": 11.8753678482675, "price": 6919.75, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.9, "reviews": 164, "rating_label": "Fabulous", "stars": 4, "type": "Hotel", "whole": false, "ski_text": "950 m from ski lift", "ski_m": 950, "ski_to_door": false, "centre": "4.2 km from Corvara in Badia", "units": 2, "unit_desc": "", "unit_name": "Standard Triple Room + Junior Suite with Terrace", "bedrooms": 2, "bathrooms": 3, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/883404441.jpg?k=b2bdca010b7a2816e240859c84e2004fbd1aa243a326eee6dec4cab3ae36d8bb&o=", "free_cancel": false, "town_km": 1.6}, {"id": 410739, "name": "Hotel Falzares", "url": "https://www.booking.com/hotel/it/falzares.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "San Cassiano", "city": "San Cassiano (Sankt Kassian)", "address": "Via Micurà de Ru 21", "lat": 46.57171731680001, "lng": 11.931205987930298, "price": 8813.0, "price_excluded_charges": 0.0, "price_before_discount": 9246.3, "discounts": ["Weekly rate"], "currency": "EUR", "rating": 9.2, "reviews": 127, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "700 m from ski lift", "ski_m": 700, "ski_to_door": false, "centre": "5 km from Corvara in Badia", "units": 4, "unit_desc": "", "unit_name": "Double Room + Double Room with Balcony", "bedrooms": 0, "bathrooms": 0, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/10376891.jpg?k=def7b303a0989d3f6d99d5665b8acce1a523a7a6fe4b793b2dd2d303b5c8d01e&o=", "free_cancel": true, "town_km": 0.2}, {"id": 729764, "name": "Klimahaus Dep. La Fradora", "url": "https://www.booking.com/hotel/it/klima-haus-dep-la-fradora.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "San Cassiano", "city": "San Cassiano (Sankt Kassian)", "address": "Str. Costadedoi 21", "lat": 46.57722653271668, "lng": 11.924757957458496, "price": 5449.7, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.4, "reviews": 6, "rating_label": "Very good", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "1.5 km from ski lift", "ski_m": 1500, "ski_to_door": false, "centre": "4.9 km from Corvara in Badia", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "One-Bedroom Apartment + Two-Bedroom Apartment", "bedrooms": 3, "bathrooms": 2, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/886676804.jpg?k=198119c49c1de2dcb3ee2104b7b6ea24241e8312a2fdfe94f4baa67fa9cece2d&o=", "free_cancel": false, "town_km": 1.0}, {"id": 5005336, "name": "Chalet Funtanacia", "url": "https://www.booking.com/hotel/it/b-amp-b-funtanacia.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "La Villa", "city": "La Villa", "address": "Strada Funtanacia 100", "lat": 46.57332, "lng": 11.89192, "price": 7462.7, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 7.7, "reviews": 3, "rating_label": "Good", "stars": null, "type": "Chalet", "whole": true, "ski_text": "1.1 km from ski lift", "ski_m": 1100, "ski_to_door": false, "centre": "3 km from Corvara in Badia", "units": 1, "unit_desc": "Entire chalet", "unit_name": "Chalet", "bedrooms": 6, "bathrooms": 7, "beds": 15, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/304435872.jpg?k=14b60778edafa5b91c1a36578f1afe57435a3e79ba1c8630eb87c399c3b6d212&o=", "free_cancel": false, "town_km": 1.6}, {"id": 841287, "name": "Ciasa de Lenz", "url": "https://www.booking.com/hotel/it/ciasa-de-lenz.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "San Cassiano", "city": "San Cassiano", "address": "Str. Costadedoi 115", "lat": 46.57644480389004, "lng": 11.925948858261108, "price": 6877.5, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.8, "reviews": 56, "rating_label": "Exceptional", "stars": 4, "type": "Pensjonat", "whole": true, "ski_text": "1.3 km from ski lift", "ski_m": 1300, "ski_to_door": false, "centre": "4.9 km from Corvara in Badia", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Two-Bedroom Apartment - Attic + Apartment with Mountain View", "bedrooms": 5, "bathrooms": 5, "beds": 9, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/113130640.jpg?k=905928f04414bb4014a0419cf5db5939ef1a95407216f67fdeabc180100648ef&o=", "free_cancel": false, "town_km": 0.9}, {"id": 370157, "name": "Hotel La Villa", "url": "https://www.booking.com/hotel/it/villa.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "La Villa", "city": "La Villa (Stern)", "address": "Strada Boscdaplan 176", "lat": 46.588176926255045, "lng": 11.905317306518555, "price": 9266.31, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.9, "reviews": 107, "rating_label": "Fabulous", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "400 m from ski lift", "ski_m": 400, "ski_to_door": false, "centre": "4.9 km from Corvara in Badia", "units": 2, "unit_desc": "", "unit_name": "Superior Queen Room + Large Double or Twin Room", "bedrooms": 0, "bathrooms": 0, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/84967282.jpg?k=9a2b9c158d186d74216dd7abd99090f56a7fd3db6c9906f34f9502ff6978e588&o=", "free_cancel": false, "town_km": 0.4}, {"id": 238710, "name": "Hotel La Fradora - Dolomites Hotel", "url": "https://www.booking.com/hotel/it/la-fradora.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "San Cassiano", "city": "San Cassiano (Sankt Kassian)", "address": "Str. Costadedoi 21", "lat": 46.57679289594377, "lng": 11.924925327039091, "price": 9061.04, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.4, "reviews": 49, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "1.4 km from ski lift", "ski_m": 1400, "ski_to_door": false, "centre": "4.9 km from Corvara in Badia", "units": 2, "unit_desc": "", "unit_name": "Comfort Triple Room + Duplex Quadruple Room", "bedrooms": 0, "bathrooms": 0, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/919716113.jpg?k=8f47f699fcc0fdd01237d6948487b57e765ec6f36d9aa2b037a87dd8166e2d26&o=", "free_cancel": false, "town_km": 0.9}, {"id": 421429, "name": "Hotel Des Alpes", "url": "https://www.booking.com/hotel/it/des-alpes-la-villa.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Alta Badia", "town": "La Villa", "city": "La Villa", "address": "Boscdaplan 190", "lat": 46.588206419277725, "lng": 11.905070543289185, "price": 10843.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.4, "reviews": 42, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "350 m from ski lift", "ski_m": 350, "ski_to_door": false, "centre": "4.9 km from Corvara in Badia", "units": 2, "unit_desc": "", "unit_name": "Family Room", "bedrooms": 0, "bathrooms": 0, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/479268486.jpg?k=5871c679e0180afaf676a382f0c902208ce969b83e1ce1a57e3af83b1351a689&o=", "free_cancel": false, "town_km": 0.4}, {"id": 1448771, "name": "Chalet Pradat", "url": "https://www.booking.com/hotel/it/chalet-pradat.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "via Pradat-Arabba,6", "lat": 46.499809606328746, "lng": 11.877060142327878, "price": 2996.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.4, "reviews": 129, "rating_label": "Superb", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "500 m from ski lift", "ski_m": 500, "ski_to_door": false, "centre": "300 m from centre", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Apartment with Terrace + Apartment", "bedrooms": 2, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/51187337.jpg?k=5812f613e8c3790909adb0d782adc3cd5c8bc61bc229d375602bca1fd312883c&o=", "free_cancel": false, "town_km": 0.4}, {"id": 1174322, "name": "Chalet Helen", "url": "https://www.booking.com/hotel/it/chalet-helen.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Via Mesdí 20/21", "lat": 46.49841769999999, "lng": 11.875881373016341, "price": 4409.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.0, "reviews": 38, "rating_label": "Very good", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "350 m from ski lift", "ski_m": 350, "ski_to_door": false, "centre": "150 m from centre", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Five-Bedroom Apartment", "bedrooms": 5, "bathrooms": 5, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/615312679.jpg?k=e8f6cc31d3539b326589937f5bf9a86fc2a89373c0cbd5464ad5f956fa06e8c9&o=", "free_cancel": false, "town_km": 0.2}, {"id": 28861, "name": "Residence Baita Antlia", "url": "https://www.booking.com/hotel/it/residence-baita-antlia.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Via Precumon 47", "lat": 46.49521641729747, "lng": 11.868415474891663, "price": 5078.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.2, "reviews": 232, "rating_label": "Superb", "stars": 3, "type": "Apartamenty / Residence", "whole": true, "ski_text": "300 m from ski lift", "ski_m": 300, "ski_to_door": true, "centre": "0.6 km from centre", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "One-Bedroom Apartment", "bedrooms": 2, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/98215615.jpg?k=24e115df840110d28277daaea36d917cd9133a0341f9cc19f41c3281b826542a&o=", "free_cancel": false, "town_km": 0.5}, {"id": 816870, "name": "Hotel Garni Royal", "url": "https://www.booking.com/hotel/it/garni-royal.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Via Mesdi 7", "lat": 46.498820151257384, "lng": 11.876550196973405, "price": 4724.25, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.1, "reviews": 167, "rating_label": "Superb", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "400 m from ski lift", "ski_m": 400, "ski_to_door": false, "centre": "200 m from centre", "units": 3, "unit_desc": "", "unit_name": "Double Room with Private Bathroom + Standard Double or Twin Room", "bedrooms": 0, "bathrooms": 0, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/898649568.jpg?k=d968b9e63340c0d4564729981b9d1190487cbf3f2d635d9026c0d0dbd5ed7027&o=", "free_cancel": false, "town_km": 0.3}, {"id": 431027, "name": "Hotel Portavescovo", "url": "https://www.booking.com/hotel/it/portavescovo.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Via Boè 28", "lat": 46.49816330880081, "lng": 11.872921586036682, "price": 6518.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.7, "reviews": 951, "rating_label": "Fabulous", "stars": 3, "type": "Hotel", "whole": false, "ski_text": "150 m from ski lift", "ski_m": 150, "ski_to_door": true, "centre": "200 m from centre", "units": 2, "unit_desc": "", "unit_name": "Triple Room + Quadruple Room", "bedrooms": 0, "bathrooms": 0, "beds": 7, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/492948800.jpg?k=41a6851e944ec0e9561edef72a6423ae3fa109555e782ece669c88b7adc3fcde&o=", "free_cancel": false, "town_km": 0.2}, {"id": 17208773, "name": "Appartamenti Dolomites", "url": "https://www.booking.com/hotel/it/appartamenti-dolomites-arabba.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "via mesdi, 57", "lat": 46.497348578306, "lng": 11.8740373208988, "price": 4396.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": null, "reviews": 0, "rating_label": "", "stars": null, "type": "Apartament", "whole": true, "ski_text": "200 m from ski lift", "ski_m": 200, "ski_to_door": false, "centre": "100 m from centre", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Two-Bedroom Apartment", "bedrooms": 2, "bathrooms": 1, "beds": 7, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/915269878.jpg?k=8c15659d3d60cb44612be8e1e753d190e0ea5e2f7403244a05a1d42306a7106c&o=", "free_cancel": false, "town_km": 0.0}, {"id": 14149556, "name": "Stella Due", "url": "https://www.booking.com/hotel/it/stella-due.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Provincia di Belluno", "address": "Via Precumon, 21", "lat": 46.4958759, "lng": 11.8696013, "price": 12712.5, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.1, "reviews": 192, "rating_label": "Superb", "stars": null, "type": "Apartamenty / Residence", "whole": true, "ski_text": "200 m from ski lift", "ski_m": 200, "ski_to_door": false, "centre": "450 m from centre", "units": 3, "unit_desc": "3 entire apartments", "unit_name": "Two-Bedroom Superior Apartment + One-Bedroom Premium Apartment", "bedrooms": 4, "bathrooms": 4, "beds": 8, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/682874975.jpg?k=6b9f645d5b719eaeefaa34e845c0c258190eab58fdaac93ef0813f16bbd6f5cd&o=", "free_cancel": true, "town_km": 0.4}, {"id": 15046651, "name": "AlpeLuce Mountain Chalet", "url": "https://www.booking.com/hotel/it/alpeluce-mountain-chalet.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Arabba", "address": "Via Paluacia 23", "lat": 46.4979180852719, "lng": 11.8721004613686, "price": 11249.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.8, "reviews": 27, "rating_label": "Exceptional", "stars": 3, "type": "Apartament", "whole": true, "ski_text": "100 m from ski lift", "ski_m": 100, "ski_to_door": true, "centre": "250 m from centre", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "One-Bedroom Apartment + Three-Bedroom Apartment", "bedrooms": 4, "bathrooms": 4, "beds": 7, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/932659777.jpg?k=897228397e4ef910209de6383820ac0f5228d606243b9bb80e555c9789a2243a&o=", "free_cancel": false, "town_km": 0.2}, {"id": 15040131, "name": "Chalet Lumiere by Elite Villas", "url": "https://www.booking.com/hotel/it/chalet-lumiere-by-elite-villas.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Arabba", "city": "Livinallongo del col di lana", "address": "Via Savine  1", "lat": 46.503329, "lng": 11.872973, "price": 56752.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": null, "reviews": 0, "rating_label": "", "stars": 4, "type": "Willa", "whole": true, "ski_text": "700 m from ski lift", "ski_m": 700, "ski_to_door": false, "centre": "0.7 km from Arabba", "units": 1, "unit_desc": "Entire villa", "unit_name": "Villa", "bedrooms": 5, "bathrooms": 5, "beds": 13, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/757515850.jpg?k=dc13ee105f6b1209aa5717ec5c7659a912f19e1a3bb4c29241383f71f02f9df4&o=", "free_cancel": false, "town_km": 0.7}, {"id": 782444, "name": "Appartamenti Cercenà", "url": "https://www.booking.com/hotel/it/appartamenti-cercena.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "Streda Cercenà 110 (Check-in at Streda Dolomites 197)", "lat": 46.47561072401384, "lng": 11.765110194683075, "price": 2012.5, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 7.2, "reviews": 21, "rating_label": "Good", "stars": 3, "type": "Apartament", "whole": true, "ski_text": "750 m from ski lift", "ski_m": 750, "ski_to_door": false, "centre": "8.8 km from Arabba", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "One-Bedroom Apartment with Balcony + Two-Bedroom Apartment with Balcony (4 Adults)", "bedrooms": 3, "bathrooms": 2, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/22915694.jpg?k=0ce4da97b262337eda5b9e0b836da115773d95e0c7628f4d86832e9dce4d8cc1&o=", "free_cancel": false, "town_km": 0.4}, {"id": 8684026, "name": "Cesa Monti pallidi 1", "url": "https://www.booking.com/hotel/it/cesa-monti-pallidi-1.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "Strada Dolomites", "lat": 46.4774884150657, "lng": 11.766985908229099, "price": 3699.0, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.8, "reviews": 8, "rating_label": "Fabulous", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "700 m from ski lift", "ski_m": 700, "ski_to_door": false, "centre": "8.6 km from Arabba", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Apartment", "bedrooms": 4, "bathrooms": 3, "beds": 6, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/377480196.jpg?k=6d58dd3f1665dfb603e6f609c6c9d414f45185ad3276e7a58be952592e144842&o=", "free_cancel": true, "town_km": 0.2}, {"id": 433171, "name": "Appartamenti Villa Flora by AMA Val di Fassa", "url": "https://www.booking.com/hotel/it/residence-villa-flora.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Loc. Alba di Canazei", "address": "Streda Costa 199", "lat": 46.45956780591612, "lng": 11.786248683929443, "price": 3659.07, "price_excluded_charges": 0.0, "price_before_discount": 3907.5, "discounts": ["Booking.com pays"], "currency": "EUR", "rating": 8.6, "reviews": 417, "rating_label": "Fabulous", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "250 m from ski lift", "ski_m": 250, "ski_to_door": false, "centre": "8 km from Arabba", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Apartment with Balcony + Two-Bedroom Apartment", "bedrooms": 4, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/567330299.jpg?k=71dd3305be6d112d37ecd18f4ae57263cd47d9515a9058a01beb2836018bbc2a&o=", "free_cancel": false, "town_km": 2.3}, {"id": 9180022, "name": "Albergo Canazei", "url": "https://www.booking.com/hotel/it/albergo-canazei.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "34 Via di Parèda", "lat": 46.4747054, "lng": 11.7730165, "price": 3704.4, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 8.9, "reviews": 235, "rating_label": "Fabulous", "stars": 3, "type": "B&B", "whole": false, "ski_text": "150 m from ski lift", "ski_m": 150, "ski_to_door": false, "centre": "8.2 km from Arabba", "units": 3, "unit_desc": "", "unit_name": "Triple Room with Mountain View + Double Room", "bedrooms": 0, "bathrooms": 0, "beds": 5, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/463986926.jpg?k=206fd39d584a0c3b5ac68461225b06ad6689c9a419ee98b648787b685dd7446a&o=", "free_cancel": true, "town_km": 0.3}, {"id": 15796297, "name": "Vicinanza d'Andraz", "url": "https://www.booking.com/hotel/it/vicinanza-d-andraz.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Arabba / Marmolada", "town": "Livinallongo del Col di Lana", "city": "Andraz", "address": "Località Andraz, 39", "lat": 46.4833404, "lng": 11.9833901, "price": 4209.51, "price_excluded_charges": 0.0, "price_before_discount": 4533.9, "discounts": ["Booking.com pays"], "currency": "EUR", "rating": 9.8, "reviews": 5, "rating_label": "Exceptional", "stars": 3, "type": "Chalet", "whole": true, "ski_text": "", "ski_m": null, "ski_to_door": false, "centre": "8.4 km from Arabba", "units": 1, "unit_desc": "Entire chalet", "unit_name": "Chalet", "bedrooms": 4, "bathrooms": 2, "beds": 8, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/821469043.jpg?k=c97c27374445878032e251a90e0cb1ba3f85f2935766ec31ef828ac861532850&o=", "free_cancel": false, "town_km": 2.8}, {"id": 8164489, "name": "CHENINA", "url": "https://www.booking.com/hotel/it/chenina.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "1 Strada della Via della Cascata", "lat": 46.4780326, "lng": 11.7641517, "price": 2358.61, "price_excluded_charges": 0.0, "price_before_discount": 2457.98, "discounts": ["Genius discount"], "currency": "EUR", "rating": 8.1, "reviews": 26, "rating_label": "Very good", "stars": 3, "type": "Apartament", "whole": true, "ski_text": "900 m from ski lift", "ski_m": 900, "ski_to_door": false, "centre": "8.8 km from Arabba", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Apartment + One-Bedroom Apartment", "bedrooms": 2, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/337423517.jpg?k=311754f6c9d7e763988a2f807bd868b295e1a05e88cfbcc4abc2e75a0f804e58&o=", "free_cancel": false, "town_km": 0.5}, {"id": 538387, "name": "Planber Apartments Mountain View SKI-IN SKI-OUT", "url": "https://www.booking.com/hotel/it/ciasa-plembar.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "Strada de Ciampac 16", "lat": 46.474811317483855, "lng": 11.774542033545004, "price": 6252.85, "price_excluded_charges": 0.0, "price_before_discount": 6737.5, "discounts": ["Booking.com pays"], "currency": "EUR", "rating": 9.6, "reviews": 83, "rating_label": "Exceptional", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "50 m from ski lift", "ski_m": 50, "ski_to_door": true, "centre": "8.1 km from Arabba", "units": 1, "unit_desc": "Entire apartment", "unit_name": "Superior Two-Bedroom Apartment", "bedrooms": 2, "bathrooms": 2, "beds": 4, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/743190839.jpg?k=bc536f76d6b000c4ed32a731b08a775af4e102ca3211ca7383231ba2da0294ad&o=", "free_cancel": false, "town_km": 0.4}, {"id": 1027902, "name": "Appartamenti Agriturismo Cèsa Ciasates", "url": "https://www.booking.com/hotel/it/appartamenti-cesa-ciasates.pl.html?checkin=2027-01-09&checkout=2027-01-16&group_adults=7&no_rooms=1&group_children=0&selected_currency=EUR", "area": "Val di Fassa / Carezza", "town": "Canazei", "city": "Canazei", "address": "Via Costa 14", "lat": 46.469256195314934, "lng": 11.777483224868774, "price": 4658.5, "price_excluded_charges": 0.0, "price_before_discount": null, "discounts": [], "currency": "EUR", "rating": 9.4, "reviews": 65, "rating_label": "Superb", "stars": 4, "type": "Apartament", "whole": true, "ski_text": "600 m from ski lift", "ski_m": 600, "ski_to_door": false, "centre": "8.1 km from Arabba", "units": 2, "unit_desc": "2 entire apartments", "unit_name": "Two-Bedroom Apartment with Balcony + Two-Bedroom Apartment with 2 Bathrooms ", "bedrooms": 4, "bathrooms": 3, "beds": 8, "photo": "https://cf.bstatic.com/xdata/images/hotel/square600/237355965.jpg?k=09ad47e2488f07b0e3b70e9dcf25446d6e48f31ea8a5344cde7972230e4eaa3c&o=", "free_cancel": true, "town_km": 1.0}]};
+const META = DATA.meta, PROPS = DATA.props;
+const $ = id => document.getElementById(id);
+const fmt0 = new Intl.NumberFormat('pl-PL', {maximumFractionDigits:0});
+const fmt1 = new Intl.NumberFormat('pl-PL', {minimumFractionDigits:1, maximumFractionDigits:1});
+const CUR = META.currency === 'EUR' ? '€' : META.currency;
+document.querySelectorAll('.cur').forEach(e => e.textContent = CUR);
+const nightsPeople = META.nights * META.adults;
+
+$('subtitle').textContent = `Przyjazd ${META.checkin} · wyjazd ${META.checkout} (${META.nights} nocy) · ${META.adults} osób · ` +
+  `${PROPS.length} ofert · dane pobrane ${META.generated}`;
+
+// ---------- składowe wyniku (liczone raz, na całym zbiorze)
+const clip = (x,a=0,b=1) => Math.max(a, Math.min(b, x));
+PROPS.forEach(p => p.ppn = p.price / nightsPeople);
+const ppnSorted = PROPS.map(p => p.ppn).sort((a,b) => a-b);
+const pct = q => ppnSorted[Math.min(ppnSorted.length-1, Math.floor(q*(ppnSorted.length-1)))];
+const lo = Math.log(pct(0.05)), hi = Math.log(pct(0.95));
+const rated = PROPS.filter(p => p.rating);
+const C = rated.length ? rated.reduce((s,p) => s+p.rating, 0)/rated.length : 8;
+const M = 8;  // "wirtualne" opinie średniej
+PROPS.forEach(p => {
+  p.sPrice = hi > lo ? clip((hi - Math.log(p.ppn)) / (hi - lo)) : 1;
+  const adj = p.rating ? (p.reviews*p.rating + M*C) / (p.reviews + M) : 7.0;
+  p.ratingAdj = adj;
+  p.sRate = clip((adj - 6) / 4);
+  p.sDist = p.ski_m == null ? 0.2 : 1 / (1 + Math.pow(p.ski_m/700, 1.5));
+});
+
+// ---------- rejony
+[...new Set(PROPS.map(p => p.area))].sort().forEach(a => {
+  const o = document.createElement('option'); o.value = a;
+  o.textContent = `${a} (${PROPS.filter(p => p.area===a).length})`; $('fArea').appendChild(o);
+});
+
+let sortKey = 'total', sortAsc = false, current = [];
+
+function compute() {
+  const wP = +$('wPrice').value, wR = +$('wRate').value, wD = +$('wDist').value, W = (wP+wR+wD) || 1;
+  $('wPriceV').textContent = Math.round(100*wP/W)+'%';
+  $('wRateV').textContent = Math.round(100*wR/W)+'%';
+  $('wDistV').textContent = Math.round(100*wD/W)+'%';
+  PROPS.forEach(p => {
+    p.cP = 100*wP*p.sPrice/W; p.cR = 100*wR*p.sRate/W; p.cD = 100*wD*p.sDist/W;
+    p.total = p.cP + p.cR + p.cD;
+  });
+  // ranking globalny (niezależny od filtrów)
+  [...PROPS].sort((a,b) => b.total - a.total).forEach((p,i) => p.rank = i+1);
+
+  const area = $('fArea').value, maxP = parseFloat($('fPrice').value), minR = parseFloat($('fRating').value),
+        maxD = parseFloat($('fDist').value), txt = $('fText').value.trim().toLowerCase();
+  current = PROPS.filter(p =>
+    (!area || p.area === area) &&
+    (isNaN(maxP) || p.price <= maxP) &&
+    (isNaN(minR) || (p.rating && p.rating >= minR)) &&
+    (isNaN(maxD) || (p.ski_m != null && p.ski_m <= maxD)) &&
+    (!$('fWhole').checked || p.whole) &&
+    (!$('fSingle').checked || p.units <= 1) &&
+    (!$('fRated').checked || p.rating) &&
+    (!$('fKnownDist').checked || p.ski_m != null) &&
+    (!txt || (p.name+' '+p.city+' '+p.town+' '+p.area).toLowerCase().includes(txt)));
+
+  const val = p => sortKey === 'rating' ? (p.rating || 0) : sortKey === 'ski_m' ? (p.ski_m ?? 1e9) : p[sortKey];
+  current.sort((a,b) => {
+    const x = val(a), y = val(b);
+    const r = typeof x === 'string' ? x.localeCompare(y, 'pl') : x - y;
+    return sortAsc ? r : -r;
+  });
+  render();
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function render() {
+  const rows = current.slice(0, 600).map(p => {
+    const cfg = [p.unit_desc, p.unit_name].filter(Boolean).join(' · ');
+    const extra = [];
+    if (p.bedrooms) extra.push(`${p.bedrooms} sypialni`);
+    if (p.bathrooms) extra.push(`${p.bathrooms} łaz.`);
+    if (p.beds) extra.push(`${p.beds} łóżek`);
+    const pills = [`<span class="pill">${esc(p.type)}</span>`];
+    if (p.units > 1) pills.push(`<span class="pill orange">${p.units} lokale/pokoje</span>`);
+    if (p.ski_to_door) pills.push(`<span class="pill green">ski-to-door</span>`);
+    if (p.free_cancel) pills.push(`<span class="pill green">bezpłatne odwołanie</span>`);
+    if (p.discounts.length) pills.push(`<span class="pill">${esc(p.discounts.join(', '))}</span>`);
+    const rating = p.rating
+      ? `<span class="score">${fmt1.format(p.rating)}</span><div class="sub">${fmt0.format(p.reviews)} opinii</div>`
+      : `<span class="sub">brak ocen</span>`;
+    const dist = p.ski_m == null ? '<span class="sub">brak danych</span>'
+      : (p.ski_m >= 1000 ? fmt1.format(p.ski_m/1000)+' km' : fmt0.format(p.ski_m)+' m');
+    const before = p.price_before_discount && p.price_before_discount > p.price + 1
+      ? `<div class="sub"><s>${CUR} ${fmt0.format(p.price_before_discount)}</s></div>` : '';
+    return `<tr>
+      <td class="rank">${p.rank}</td>
+      <td>${p.photo ? `<a href="${esc(p.url)}" target="_blank"><img class="thumb" loading="lazy" src="${esc(p.photo)}"></a>` : ''}</td>
+      <td class="name"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>${p.stars ? ' <span class="sub">'+'★'.repeat(p.stars)+'</span>' : ''}
+        <div class="sub">${esc(p.city)}${p.address ? ', '+esc(p.address) : ''}</div>
+        <div class="sub">${esc(cfg)}${extra.length ? ' · '+extra.join(', ') : ''}</div>
+        <div>${pills.join('')}</div></td>
+      <td><div>${esc(p.area)}</div><div class="sub">szukano: ${esc(p.town)}</div></td>
+      <td class="num"><b>${CUR} ${fmt0.format(p.price)}</b>${before}</td>
+      <td class="num">${CUR} ${fmt0.format(p.ppn)}</td>
+      <td class="num">${rating}</td>
+      <td class="num">${dist}</td>
+      <td class="num"><span class="total">${fmt0.format(p.total)}</span>
+        <div class="bars" title="cena ${fmt0.format(p.cP)} + ocena ${fmt0.format(p.cR)} + wyciąg ${fmt0.format(p.cD)}">
+          <span class="b-price" style="width:${p.cP}%"></span><span class="b-rate" style="width:${p.cR}%"></span><span class="b-dist" style="width:${p.cD}%"></span></div></td>
+    </tr>`;
+  });
+  $('rows').innerHTML = rows.join('') || '<tr><td colspan="9" class="muted" style="padding:20px">Brak ofert spełniających filtry.</td></tr>';
+
+  const prices = current.map(p => p.price);
+  const withR = current.filter(p => p.rating);
+  $('stats').innerHTML = `<span>Pokazano: <b>${current.length}</b> z ${PROPS.length} ofert${current.length > 600 ? ' (tabela: pierwsze 600)' : ''}</span>` +
+    (prices.length ? `<span>Najtaniej: <b>${CUR} ${fmt0.format(Math.min(...prices))}</b></span>
+     <span>Mediana ceny: <b>${CUR} ${fmt0.format(prices.sort((a,b)=>a-b)[Math.floor(prices.length/2)])}</b></span>` : '') +
+    (withR.length ? `<span>Średnia ocena: <b>${fmt1.format(withR.reduce((s,p)=>s+p.rating,0)/withR.length)}</b></span>` : '') +
+    `<span>≤ 300 m od wyciągu: <b>${current.filter(p => p.ski_m != null && p.ski_m <= 300).length}</b></span>`;
+
+  document.querySelectorAll('th[data-k]').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.k === sortKey);
+    th.classList.toggle('asc', th.dataset.k === sortKey && sortAsc);
+  });
+  if (mapOn) drawMap();
+}
+
+document.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => {
+  const k = th.dataset.k;
+  if (sortKey === k) sortAsc = !sortAsc;
+  else { sortKey = k; sortAsc = ['rank','price','ppn','ski_m','name','area'].includes(k); }
+  compute();
+}));
+['wPrice','wRate','wDist','fArea','fPrice','fRating','fDist','fText','fWhole','fSingle','fRated','fKnownDist']
+  .forEach(id => $(id).addEventListener('input', compute));
+
+// ---------- mapa
+let map = null, layer = null, mapOn = false;
+function drawMap() {
+  if (typeof L === 'undefined') { $('map').innerHTML = '<p style="padding:20px">Mapa wymaga połączenia z internetem (Leaflet/OpenStreetMap).</p>'; return; }
+  if (!map) {
+    map = L.map('map').setView([46.5, 11.85], 9);
+    // kafelki Esri (tile.openstreetmap.org i CARTO blokują strony otwierane z dysku - brak nagłówka Referer)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+      {maxZoom:18, attribution:'Tiles © Esri — Esri, HERE, Garmin, OpenStreetMap contributors'}).addTo(map);
+  }
+  if (layer) layer.remove();
+  layer = L.layerGroup().addTo(map);
+  const top = [...current].sort((a,b) => b.total - a.total).slice(0, 100).filter(p => p.lat && p.lng);
+  top.forEach(p => {
+    const col = p.total >= 70 ? '#1a7f4b' : p.total >= 55 ? '#b7791f' : '#b42318';
+    L.circleMarker([p.lat, p.lng], {radius:8, color:'#fff', weight:1.5, fillColor:col, fillOpacity:.9})
+      .bindPopup(`<b>#${p.rank} <a href="${esc(p.url)}" target="_blank">${esc(p.name)}</a></b><br>${esc(p.city)}<br>` +
+                 `${CUR} ${fmt0.format(p.price)} · ocena ${p.rating ? fmt1.format(p.rating) : '–'} · ` +
+                 `wyciąg ${p.ski_m == null ? '?' : fmt0.format(p.ski_m)+' m'}<br>Wynik: <b>${fmt0.format(p.total)}</b>`)
+      .addTo(layer);
+  });
+  if (top.length) map.fitBounds(L.latLngBounds(top.map(p => [p.lat, p.lng])).pad(0.1));
+}
+$('tabTable').onclick = () => { mapOn = false; $('viewTable').style.display=''; $('viewMap').style.display='none';
+  $('tabTable').classList.add('on'); $('tabMap').classList.remove('on'); };
+$('tabMap').onclick = () => { mapOn = true; $('viewTable').style.display='none'; $('viewMap').style.display='';
+  $('tabMap').classList.add('on'); $('tabTable').classList.remove('on'); drawMap(); setTimeout(() => map && map.invalidateSize(), 50); };
+
+compute();
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</body>
+</html>
